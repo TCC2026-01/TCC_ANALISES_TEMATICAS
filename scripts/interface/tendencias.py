@@ -95,7 +95,7 @@ def exibir(df):
             st.write(f"Previsão da quantidade de TCCs para os próximos {anos_previsao} anos")
             top_5_temas = df['nome_topico'].value_counts().head(5).index.tolist()
             if top_5_temas:
-                tema_viz = st.selectbox("Selecione um tema para visualizar a previsão", options=top_5_temas, format_func=simplificar_topico)
+                tema_viz = st.selectbox("Selecione um tema para visualizar a previsão", options=top_5_temas, format_func=simplificar_topico, key='tcc_tendencia_select')
                 if tema_viz:
                     df_tema_hist = df[df['nome_topico'] == tema_viz].groupby('ano').size().reset_index(name='count')
                     if len(df_tema_hist) >= 2:

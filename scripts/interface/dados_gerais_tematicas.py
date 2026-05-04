@@ -1,98 +1,435 @@
 # -*- coding: utf-8 -*-
 import streamlit as st
-import plotly.express as px
 import pandas as pd
-from utilitarios import simplificar_topico, metric_bold
+import plotly.express as px
 
+
+# =============================
+# 🧼 LIMPEZA
+# =============================
+def limpar_prefixo(texto):
+
+    if not isinstance(texto, str):
+        return texto
+
+    return (
+        texto
+        .replace("TCC - ", "")
+        .replace("Projeto - ", "")
+        .replace("Artigo - ", "")
+    )
+
+
+# =============================
+# 🧠 DASHBOARD
+# =============================
 def exibir(df_tcc, df_art, df_proj):
-    st.subheader("Análise Temática Comparativa")
 
-    # Prepara temas de cada tipo
-    def top_temas(df, label, n=10):
-        t = df['nome_topico'].value_counts().head(n).reset_index()
-        t.columns = ['tema', 'quantidade']
-        t['tipo'] = label
-        t['tema_simples'] = t['tema'].apply(simplificar_topico)
-        return t
+    st.subheader("📊 ANÁLISE DE TEMÁTICAS ACADÊMICAS")
 
-    df_t_tcc  = top_temas(df_tcc, 'TCCs')
-    df_t_art  = top_temas(df_art, 'Artigos')
-    df_t_proj = top_temas(df_proj, 'Projetos')
+    # =====================================================
+    # 🔗 UNIFICAR BASES
+    # =====================================================
 
-    # ── MÉTRICAS ──────────────────────────────────────────────────────────────
+    def preparar(df, tipo):
+
+        if df is None or df.empty:
+            return pd.DataFrame()
+
+        tmp = df.copy()
+        tmp["tipo"] = tipo
+
+        return tmp
+
+    df_tcc = preparar(df_tcc, "TCC")
+    df_art = preparar(df_art, "Artigo")
+    df_proj = preparar(df_proj, "Projeto")
+
+    df = pd.concat(
+        [df_tcc, df_art, df_proj],
+        ignore_index=True
+    )
+
+    if df.empty:
+        st.warning("Sem dados disponíveis.")
+        return
+
+    # =====================================================
+    # 🎛️ FILTRO INTERNO
+    # =====================================================
+
+    st.markdown("## 🎛️ Filtros da Análise")
+
+    tipos_disponiveis = (
+        df["tipo"]
+        .dropna()
+        .unique()
+        .tolist()
+    )
+
+    tipos_selecionados = st.multiselect(
+        "Selecione os tipos de produção",
+        options=sorted(tipos_disponiveis),
+        default=sorted(tipos_disponiveis),
+        key="filtro_tipo_storyline"
+    )
+
+    if not tipos_selecionados:
+        st.warning("Selecione ao menos um tipo.")
+        return
+
+    # aplica filtro
+    df = df[
+        df["tipo"].isin(tipos_selecionados)
+    ]
+
+    st.markdown("---")
+
+    # =====================================================
+    # 📊 INSIGHT BASE
+    # =====================================================
+
+    total = len(df)
+
+    top_geral = (
+        df["nome_topico"]
+        .value_counts()
+        .head(1)
+    )
+
+    tema_top = (
+        limpar_prefixo(top_geral.index[0])
+        if not top_geral.empty
+        else "N/A"
+    )
+
+    freq_top = (
+        int(top_geral.values[0])
+        if not top_geral.empty
+        else 0
+    )
+
+    dominancia = (
+        (freq_top / total) * 100
+        if total > 0
+        else 0
+    )
+
+    # =====================================================
+    # 📖 STORYLINE
+    # =====================================================
+
+    st.markdown("## 📌 STORYLINE DAS TEMÁTICAS")
+
+    st.info(f"""
+Foram analisados **{total} registros acadêmicos**.
+
+O tema mais recorrente foi **{tema_top}**, com **{freq_top} ocorrências**.
+""")
+
+    if dominancia > 30:
+
+        st.warning(
+            f"🔴 Forte concentração temática em "
+            f"**{tema_top}** ({dominancia:.1f}%)."
+        )
+
+    elif dominancia > 15:
+
+        st.info(
+            f"🟡 Tema dominante moderado "
+            f"(**{tema_top}**)."
+        )
+
+    else:
+
+        st.success("🟢 Boa diversidade temática.")
+
+    st.markdown("---")
+
+    # =====================================================
+    # 📊 MÉTRICAS COM TOOLTIP
+    # =====================================================
+
+    def top_tema(df_local, tipo):
+
+        df_t = df_local[
+            df_local["tipo"] == tipo
+        ]
+
+        if (
+            df_t.empty
+            or "nome_topico" not in df_t.columns
+        ):
+            return "N/A", 0
+
+        top = (
+            df_t["nome_topico"]
+            .value_counts()
+            .reset_index()
+        )
+
+        top.columns = [
+            "tema",
+            "qtd"
+        ]
+
+        return (
+            limpar_prefixo(top.iloc[0]["tema"]),
+            int(top.iloc[0]["qtd"])
+        )
+
     col1, col2, col3 = st.columns(3)
-    with col1:
-        metric_bold("Tema Top TCCs", df_t_tcc.iloc[0]['tema_simples'])
-    with col2:
-        metric_bold("Tema Top Artigos", df_t_art.iloc[0]['tema_simples'])
-    with col3:
-        metric_bold("Tema Top Projetos", df_t_proj.iloc[0]['tema_simples'])
-
-    st.markdown("---")
-
-    # ── TOP TEMAS POR TIPO ────────────────────────────────────────────────────
-    st.subheader("Top 10 Temas por Tipo")
-    col1, col2, col3 = st.columns(3)
 
     with col1:
-        st.markdown("**📚 TCCs**")
-        fig1 = px.bar(df_t_tcc, x='quantidade', y='tema_simples', orientation='h',
-                      color_discrete_sequence=['#4A90E2'], text='quantidade')
-        fig1.update_traces(textposition='outside')
-        fig1.update_layout(height=400, showlegend=False,
-                           yaxis={'categoryorder': 'total ascending'}, xaxis_title="")
-        st.plotly_chart(fig1, config={'responsive': True}, key="dgt_tcc", use_container_width=True)
+
+        if "TCC" in tipos_selecionados:
+
+            tema, qtd = top_tema(df, "TCC")
+
+            st.metric(
+                label="🎓 TOP TCC",
+                value=tema,
+                delta=f"{qtd} registros",
+                help=f"""
+Tema mais recorrente entre os TCCs.
+
+Tema:
+{tema}
+
+Quantidade:
+{qtd} registros
+"""
+            )
 
     with col2:
-        st.markdown("**🔬 Artigos**")
-        fig2 = px.bar(df_t_art, x='quantidade', y='tema_simples', orientation='h',
-                      color_discrete_sequence=['#00CC96'], text='quantidade')
-        fig2.update_traces(textposition='outside')
-        fig2.update_layout(height=400, showlegend=False,
-                           yaxis={'categoryorder': 'total ascending'}, xaxis_title="")
-        st.plotly_chart(fig2, config={'responsive': True}, key="dgt_art", use_container_width=True)
+
+        if "Artigo" in tipos_selecionados:
+
+            tema, qtd = top_tema(df, "Artigo")
+
+            st.metric(
+                label="📄 TOP ARTIGO",
+                value=tema,
+                delta=f"{qtd} registros",
+                help=f"""
+Tema mais recorrente entre os artigos.
+
+Tema:
+{tema}
+
+Quantidade:
+{qtd} registros
+"""
+            )
 
     with col3:
-        st.markdown("**🗂️ Projetos**")
-        fig3 = px.bar(df_t_proj, x='quantidade', y='tema_simples', orientation='h',
-                      color_discrete_sequence=['#FFA15A'], text='quantidade')
-        fig3.update_traces(textposition='outside')
-        fig3.update_layout(height=400, showlegend=False,
-                           yaxis={'categoryorder': 'total ascending'}, xaxis_title="")
-        st.plotly_chart(fig3, config={'responsive': True}, key="dgt_proj", use_container_width=True)
+
+        if "Projeto" in tipos_selecionados:
+
+            tema, qtd = top_tema(df, "Projeto")
+
+            st.metric(
+                label="🧪 TOP PROJETO",
+                value=tema,
+                delta=f"{qtd} registros",
+                help=f"""
+Tema mais recorrente entre os projetos.
+
+Tema:
+{tema}
+
+Quantidade:
+{qtd} registros
+"""
+            )
 
     st.markdown("---")
 
-    # ── EVOLUÇÃO TEMPORAL POR TEMA ────────────────────────────────────────────
-    st.subheader("Evolução Temporal — Top 5 Temas de TCCs")
-    top5_tcc = df_t_tcc.head(5)['tema'].tolist()
-    df_tempo = df_tcc[df_tcc['nome_topico'].isin(top5_tcc)].groupby(['ano', 'nome_topico']).size().reset_index(name='count')
-    df_tempo['tema_simples'] = df_tempo['nome_topico'].apply(simplificar_topico)
-    fig_tempo = px.line(df_tempo, x='ano', y='count', color='tema_simples', markers=True,
-                        labels={'count': 'TCCs', 'ano': 'Ano', 'tema_simples': 'Tema'})
-    fig_tempo.update_layout(height=400, hovermode='x unified')
-    st.plotly_chart(fig_tempo, config={'responsive': True}, key="dgt_tempo", use_container_width=True)
+    # =====================================================
+    # 📈 EVOLUÇÃO TEMPORAL
+    # =====================================================
+
+    if "ano" in df.columns:
+
+        st.markdown(
+            "## 📈 🧠 TEMAS DOMINANTES POR ANO"
+        )
+
+        df_time = (
+            df.groupby(["ano", "tipo"])
+            .size()
+            .reset_index(name="qtd")
+        )
+
+        top_por_ano = (
+            df.groupby("ano")["nome_topico"]
+            .apply(
+                lambda x:
+                limpar_prefixo(
+                    x.value_counts().index[0]
+                )
+            )
+            .reset_index()
+            .rename(
+                columns={
+                    "nome_topico":
+                    "tema_dominante"
+                }
+            )
+        )
+
+        df_time = df_time.merge(
+            top_por_ano,
+            on="ano",
+            how="left"
+        )
+
+        fig = px.line(
+            df_time,
+            x="ano",
+            y="qtd",
+            color="tipo",
+            markers=True,
+            title="🧠 TEMAS DOMINANTES POR ANO",
+            labels={
+                "ano": "ANO",
+                "qtd": "QUANTIDADE",
+                "tipo": "TIPO DE PRODUÇÃO"
+            },
+            hover_data={
+                "tema_dominante": True,
+                "qtd": True,
+                "ano": True
+            }
+        )
+
+        if not df_time.empty:
+
+            max_row = df_time.loc[
+                df_time["qtd"].idxmax()
+            ]
+
+            fig.add_annotation(
+                x=max_row["ano"],
+                y=max_row["qtd"],
+                text="🔥 pico de produção",
+                showarrow=True,
+                arrowhead=2
+            )
+
+        fig.update_layout(
+            height=500,
+            title_x=0.5
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
+
+    else:
+
+        st.info(
+            "ℹ️ Coluna 'ano' não encontrada — "
+            "gráfico temporal não disponível."
+        )
 
     st.markdown("---")
 
-    # ── MAPA DE CALOR TEMAS × TIPO ────────────────────────────────────────────
-    st.subheader("Mapa de Calor: Temas em Comum × Tipo")
-    temas_tcc  = set(df_tcc['nome_topico'].dropna().unique())
-    temas_art  = set(df_art['nome_topico'].dropna().unique())
-    temas_proj = set(df_proj['nome_topico'].dropna().unique())
-    todos_temas = list(temas_tcc | temas_art | temas_proj)[:20]
+    # =====================================================
+    # 📊 COMPARATIVO DE TEMAS
+    # =====================================================
 
-    dados_heat = []
-    for tema in todos_temas:
-        dados_heat.append({
-            'tema': simplificar_topico(tema),
-            'TCCs':     len(df_tcc[df_tcc['nome_topico'] == tema]),
-            'Artigos':  len(df_art[df_art['nome_topico'] == tema]),
-            'Projetos': len(df_proj[df_proj['nome_topico'] == tema]),
-        })
+    st.markdown(
+        "## 📊 TOP TEMÁTICAS (COMPARATIVO)"
+    )
 
-    df_heat = pd.DataFrame(dados_heat).set_index('tema')
-    fig_heat = px.imshow(df_heat, labels=dict(x="Tipo", y="Tema", color="Quantidade"),
-                         aspect='auto', color_continuous_scale='Blues')
-    fig_heat.update_layout(height=500)
-    st.plotly_chart(fig_heat, config={'responsive': True}, key="dgt_heat", use_container_width=True)
+    def preparar_top(df_local, tipo):
+
+        if (
+            df_local.empty
+            or "nome_topico"
+            not in df_local.columns
+        ):
+            return pd.DataFrame(
+                columns=[
+                    "tema",
+                    "qtd",
+                    "tipo"
+                ]
+            )
+
+        top = (
+            df_local["nome_topico"]
+            .value_counts()
+            .head(10)
+            .reset_index()
+        )
+
+        top.columns = [
+            "tema",
+            "qtd"
+        ]
+
+        top["tema"] = (
+            top["tema"]
+            .apply(limpar_prefixo)
+        )
+
+        top["tipo"] = tipo
+
+        return top
+
+    dfs = []
+
+    for t in tipos_selecionados:
+
+        dfs.append(
+            preparar_top(
+                df[df["tipo"] == t],
+                t
+            )
+        )
+
+    if dfs:
+
+        df_chart = pd.concat(
+            dfs,
+            ignore_index=True
+        )
+
+        fig = px.bar(
+            df_chart,
+            x="tema",
+            y="qtd",
+            color="tipo",
+            text="qtd",
+            labels={
+                "tema": "TEMA",
+                "qtd": "QUANTIDADE",
+                "tipo": "TIPO DE PRODUÇÃO"
+            }
+        )
+
+        fig.update_traces(
+            textposition="outside"
+        )
+
+        fig.update_layout(
+            height=500,
+            xaxis_title="TEMA",
+            yaxis_title="QUANTIDADE",
+            legend_title="TIPO DE PRODUÇÃO"
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
+
+    else:
+
+        st.info(
+            "Selecione ao menos um tipo."
+        )

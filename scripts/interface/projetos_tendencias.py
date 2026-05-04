@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import re
 import streamlit as st
 import plotly.express as px
 import plotly.graph_objects as go
@@ -7,9 +8,38 @@ import pandas as pd
 from sklearn.linear_model import LinearRegression
 from utilitarios import prever_tendencias, extrair_termos_emergentes, simplificar_topico
 
+
+def _preparar_temporal(df):
+    df = df.copy()
+
+    def extrair_ano(valor):
+        if pd.isna(valor):
+            return pd.NA
+        m = re.search(r"(\d{4})", str(valor))
+        return int(m.group(1)) if m else pd.NA
+
+    if "data_inicio" not in df.columns:
+        df["data_inicio"] = pd.NA
+    if "data_fim" not in df.columns:
+        df["data_fim"] = pd.NA
+
+    df["ano"] = df["data_inicio"].apply(extrair_ano)
+    mask = df["ano"].isna()
+    df.loc[mask, "ano"] = df.loc[mask, "data_fim"].apply(extrair_ano)
+
+    return df.dropna(subset=["ano"]).copy()
+
+
 def exibir(df):
     st.subheader("Análise de Tendências — Projetos Acadêmicos")
     st.info("Identifica temas em ascensão e declínio com base na produção histórica de projetos.")
+
+    df_model = _preparar_temporal(df)
+    if df_model.empty:
+        st.warning("Não há datas de início/fim suficientes para análise temporal dos projetos.")
+        return
+
+    df_model["ano"] = df_model["ano"].astype(int)
 
     col1, col2 = st.columns([3, 1])
     with col1:
@@ -22,7 +52,7 @@ def exibir(df):
 
             st.markdown("---")
             st.subheader("Tendências por Tema")
-            df_tend = prever_tendencias(df, anos_previsao=anos_previsao)
+            df_tend = prever_tendencias(df_model, anos_previsao=anos_previsao)
 
             if not df_tend.empty:
                 df_tend['classificacao'] = df_tend['score_tendencia'].apply(
@@ -51,7 +81,7 @@ def exibir(df):
                     text=top10['score_tendencia'].round(2), textposition='outside'
                 ))
                 fig.update_layout(height=500, xaxis_title="Score de Tendência", yaxis_title="", showlegend=False)
-                st.plotly_chart(fig, config={'responsive': True}, key="pte_1")
+                st.plotly_chart(fig, config={'responsive': True}, key="pte_1", use_container_width=True)
 
                 df_display = df_tend[['tema_simples', 'ultimo_valor', 'previsao_media', 'percentual_mudanca', 'classificacao']].copy()
                 df_display.columns = ['Tema', 'Projetos Atuais', 'Previsão Média', 'Mudança %', 'Tendência']
@@ -65,15 +95,17 @@ def exibir(df):
 
             st.markdown("---")
             st.subheader("Termos Emergentes nos Resumos")
-            df_emerg = extrair_termos_emergentes(df, top_n=15)
+            df_emerg = extrair_termos_emergentes(df_model, top_n=15)
             if not df_emerg.empty:
                 col_left, col_right = st.columns(2)
                 with col_left:
-                    fig2 = px.bar(df_emerg.sort_values('crescimento_pct', ascending=True),
-                                  x='crescimento_pct', y='termo', orientation='h',
-                                  labels={'crescimento_pct': 'Crescimento (%)', 'termo': 'Termo'})
+                    fig2 = px.bar(
+                        df_emerg.sort_values('crescimento_pct', ascending=True),
+                        x='crescimento_pct', y='termo', orientation='h',
+                        labels={'crescimento_pct': 'Crescimento (%)', 'termo': 'Termo'}
+                    )
                     fig2.update_layout(height=500, yaxis_title="")
-                    st.plotly_chart(fig2, config={'responsive': True}, key="pte_2")
+                    st.plotly_chart(fig2, config={'responsive': True}, key="pte_2", use_container_width=True)
                 with col_right:
                     df_emerg_disp = df_emerg[['termo', 'freq_antiga', 'freq_recente', 'crescimento_pct']].copy()
                     df_emerg_disp.columns = ['Termo', 'Freq. Antiga', 'Freq. Recente', 'Crescimento %']
@@ -84,23 +116,39 @@ def exibir(df):
 
             st.markdown("---")
             st.subheader("Previsão de Produção por Tema")
-            top5 = df['nome_topico'].value_counts().head(5).index.tolist()
+            top5 = df_model['nome_topico'].value_counts().head(5).index.tolist()
             if top5:
-                tema_viz = st.selectbox("Selecione um tema", options=top5, format_func=simplificar_topico)
+                tema_viz = st.selectbox(
+                    "Selecione um tema",
+                    options=top5,
+                    format_func=simplificar_topico,
+                    key='projetos_tendencia_select'
+                )
                 if tema_viz:
-                    df_hist = df[df['nome_topico'] == tema_viz].groupby('ano').size().reset_index(name='count')
+                    df_hist = (
+                        df_model[df_model['nome_topico'] == tema_viz]
+                        .groupby('ano')
+                        .size()
+                        .reset_index(name='count')
+                        .sort_values('ano')
+                    )
                     if len(df_hist) >= 2:
                         X = df_hist['ano'].values.reshape(-1, 1)
                         y = df_hist['count'].values
                         model = LinearRegression().fit(X, y)
-                        anos_fut = np.array([df['ano'].max() + i for i in range(1, anos_previsao + 1)]).reshape(-1, 1)
+                        anos_fut = np.array(
+                            [df_model['ano'].max() + i for i in range(1, anos_previsao + 1)]
+                        ).reshape(-1, 1)
                         prev = np.maximum(model.predict(anos_fut), 0)
                         df_prev = pd.DataFrame({'ano': anos_fut.flatten(), 'count': prev, 'tipo': 'Previsão'})
                         df_hist['tipo'] = 'Histórico'
-                        fig3 = px.line(pd.concat([df_hist, df_prev]), x='ano', y='count', color='tipo',
-                                       markers=True, labels={'count': 'Quantidade de Projetos', 'ano': 'Ano'})
+                        fig3 = px.line(
+                            pd.concat([df_hist, df_prev]),
+                            x='ano', y='count', color='tipo', markers=True,
+                            labels={'count': 'Quantidade de Projetos', 'ano': 'Ano de Início'}
+                        )
                         fig3.update_layout(height=400)
-                        st.plotly_chart(fig3, config={'responsive': True}, key="pte_3")
+                        st.plotly_chart(fig3, config={'responsive': True}, key="pte_3", use_container_width=True)
                     else:
                         st.warning("Dados insuficientes para este tema.")
     else:

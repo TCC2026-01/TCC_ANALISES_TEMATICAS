@@ -16,87 +16,54 @@ _projetos_debug_logged = False
 
 
 def extrair_financiadores_do_projeto(proj, participacao=None):
-    """Extrai nomes dos financiadores conforme a estrutura real do Integra."""
-    financiadores = []
+    """Extrai somente nomes válidos de financiadores. Se não houver, retorna None."""
+    encontrados = []
 
-    def adicionar(nome):
-        if not isinstance(nome, str):
+    def adicionar(texto):
+        if not isinstance(texto, str):
             return
-        nome = nome.strip()
-        if not nome:
+        texto = texto.strip()
+        if not texto:
             return
-        if nome not in financiadores:
-            financiadores.append(nome)
-
-    def processar_bloco(bloco):
-        if bloco is None:
+        if not any(c.isalpha() for c in texto):
             return
+        if texto not in encontrados:
+            encontrados.append(texto)
 
-        # Caso mais comum no Integra:
-        # financiadoresDoProjeto = {
-        #   "id": ...,
-        #   "financiadorDoProjeto": [
-        #       {"nomeInstituicao": "...", ...}
-        #   ]
-        # }
-        if isinstance(bloco, dict):
-            itens = bloco.get("financiadorDoProjeto")
-
-            if isinstance(itens, list):
-                for item in itens:
-                    if isinstance(item, dict):
-                        adicionar(
-                            item.get("nomeInstituicao")
-                            or item.get("nomeFinanciador")
-                            or item.get("nome")
-                            or item.get("instituicao")
-                        )
-                    elif isinstance(item, str):
-                        adicionar(item)
-                return
-
-            if isinstance(itens, dict):
-                adicionar(
-                    itens.get("nomeInstituicao")
-                    or itens.get("nomeFinanciador")
-                    or itens.get("nome")
-                    or itens.get("instituicao")
-                )
-                return
-
-            # fallback seguro para casos em que o próprio dict já é o financiador
-            adicionar(
-                bloco.get("nomeInstituicao")
-                or bloco.get("nomeFinanciador")
-                or bloco.get("nome")
-                or bloco.get("instituicao")
-            )
+    def visitar(item):
+        if item is None:
             return
 
-        if isinstance(bloco, list):
-            for item in bloco:
-                if isinstance(item, dict):
-                    adicionar(
-                        item.get("nomeInstituicao")
-                        or item.get("nomeFinanciador")
-                        or item.get("nome")
-                        or item.get("instituicao")
-                    )
-                elif isinstance(item, str):
-                    adicionar(item)
+        if isinstance(item, str):
+            adicionar(item)
             return
 
-        if isinstance(bloco, str):
-            adicionar(bloco)
+        if isinstance(item, list):
+            for subitem in item:
+                visitar(subitem)
+            return
 
-    processar_bloco((proj or {}).get("financiadoresDoProjeto"))
-    processar_bloco((proj or {}).get("financiadorDoProjeto"))
+        if isinstance(item, dict):
+            for chave in (
+                "nomeInstituicao",
+                "nomeFinanciador",
+                "financiadorDoProjeto",
+                "instituicao",
+                "nome",
+                "sigla",
+            ):
+                if chave in item:
+                    visitar(item.get(chave))
+            return
+
+    visitar((proj or {}).get("financiadoresDoProjeto"))
+    visitar((proj or {}).get("financiadorDoProjeto"))
 
     if participacao is not None:
-        processar_bloco((participacao or {}).get("financiadoresDoProjeto"))
-        processar_bloco((participacao or {}).get("financiadorDoProjeto"))
+        visitar((participacao or {}).get("financiadoresDoProjeto"))
+        visitar((participacao or {}).get("financiadorDoProjeto"))
 
-    return "; ".join(financiadores) if financiadores else None
+    return "; ".join(encontrados) if encontrados else None
 
 
 def _collect_strings(value):
@@ -141,6 +108,47 @@ def eh_projeto_instituto_federal(*objs):
     ]
     return any(p in texto for p in palavras_validas)
 
+
+def _formatar_data(mes, ano):
+    ano = clean_value(ano)
+    mes = clean_value(mes)
+    if not ano:
+        return None
+    if mes and mes.isdigit():
+        return f"{ano}-{int(mes):02d}"
+    return ano
+
+
+def extrair_periodo_projeto(proj, participacao=None):
+    """
+    Extrai data de início e fim do projeto.
+
+    O Integra costuma expor esses campos em `participacaoEmProjeto`
+    (`mesInicio`, `anoInicio`, `mesFim`, `anoFim`) e/ou no próprio
+    `projetoDePesquisa` (`anoInicio`, `anoFim`).
+    """
+    fontes = [participacao or {}, proj or {}]
+
+    def pick(*keys):
+        for fonte in fontes:
+            if not isinstance(fonte, dict):
+                continue
+            for key in keys:
+                valor = clean_value(fonte.get(key))
+                if valor:
+                    return valor
+        return None
+
+    data_inicio = (
+        pick("dataInicio", "inicio", "inicioProjeto")
+        or _formatar_data(pick("mesInicio"), pick("anoInicio"))
+    )
+    data_fim = (
+        pick("dataFim", "fim", "fimProjeto")
+        or _formatar_data(pick("mesFim"), pick("anoFim"))
+    )
+
+    return data_inicio, data_fim
 
 
 async def fetch_professores(sigla, base_url, db_manager, progress_callback=None):
@@ -280,7 +288,6 @@ async def fetch_detalhes(sigla, base_url, uf, professores, db_manager, progress_
             artigos_para_salvar = []
             projetos_para_salvar = []
 
-            # orientações / TCCs
             outra_producao = (data or {}).get("outraProducao") or {}
             if isinstance(outra_producao, dict) and "orientacoesConcluidas" in outra_producao:
                 for item in outra_producao.get("orientacoesConcluidas", []):
@@ -322,7 +329,6 @@ async def fetch_detalhes(sigla, base_url, uf, professores, db_manager, progress_
                             clean_value(palavras.get("palavrasChaves"))
                         ))
 
-            # artigos científicos
             prodbib = (data or {}).get("producaoBibliografica") or {}
             if isinstance(prodbib, dict):
                 for bloco in prodbib.get("artigosPublicados", []):
@@ -355,7 +361,6 @@ async def fetch_detalhes(sigla, base_url, uf, professores, db_manager, progress_
                                 clean_value(palavras.get("palavrasChaves"))
                             ))
 
-            # projetos de pesquisa
             global _projetos_debug_logged
             dados_gerais = (data or {}).get("dadosGerais") or {}
             atuacoes_prof = dados_gerais.get("atuacoesProfissionais") or {}
@@ -387,6 +392,7 @@ async def fetch_detalhes(sigla, base_url, uf, professores, db_manager, progress_
                             titulo_proj = proj.get("nomeDoProjeto") or proj.get("nomeDoProjetoIngles")
                             descricao = proj.get("descricaoDoProjeto") or proj.get("descricaoDoProjetoIngles")
                             natureza = proj.get("natureza")
+                            data_inicio, data_fim = extrair_periodo_projeto(proj, participacao)
 
                             equipe = []
                             equipe_obj = proj.get("equipeDoProjeto") or {}
@@ -404,7 +410,6 @@ async def fetch_detalhes(sigla, base_url, uf, professores, db_manager, progress_
                             financiadores_str = clean_value(
                                 extrair_financiadores_do_projeto(proj, participacao)
                             )
-
                             nome_professor = clean_value(prof.get("nome"))
 
                             if not eh_projeto_instituto_federal(atuacao, atividade, participacao, proj):
@@ -420,7 +425,9 @@ async def fetch_detalhes(sigla, base_url, uf, professores, db_manager, progress_
                                     clean_value(descricao),
                                     clean_value(natureza),
                                     clean_value(equipe_str),
-                                    clean_value(financiadores_str)
+                                    clean_value(financiadores_str),
+                                    clean_value(data_inicio),
+                                    clean_value(data_fim),
                                 ))
 
             if tccs_para_salvar:

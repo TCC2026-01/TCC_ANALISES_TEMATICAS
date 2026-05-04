@@ -23,43 +23,7 @@ def exibir(df_tcc, df_art, df_proj):
         metric_bold("Projetos", f"{len(df_proj):,}".replace(",", "."))
 
     st.markdown("---")
-
-    # ── FILTRO DE INSTITUIÇÃO ─────────────────────────────────────────────────
-    todas_inst = sorted(set(
-        df_tcc['instituicao'].dropna().unique().tolist() +
-        df_art['instituicao'].dropna().unique().tolist() +
-        df_proj['instituicao'].dropna().unique().tolist()
-    ))
-    inst_sel = st.multiselect("Filtrar por Instituição (deixe vazio para todas)", options=todas_inst)
-
-    if inst_sel:
-        df_tcc  = df_tcc[df_tcc['instituicao'].isin(inst_sel)]
-        df_art  = df_art[df_art['instituicao'].isin(inst_sel)]
-        df_proj = df_proj[df_proj['instituicao'].isin(inst_sel)]
-        
-
-    # ── PIZZA GERAL ───────────────────────────────────────────────────────────
-    col_left, col_right = st.columns(2)
-    with col_left:
-        st.subheader("Distribuição Geral")
-        df_dist = pd.DataFrame({
-            'Tipo': ['TCCs', 'Artigos', 'Projetos'],
-            'Quantidade': [len(df_tcc), len(df_art), len(df_proj)]
-        })
-        fig_pizza = px.pie(df_dist, values='Quantidade', names='Tipo', hole=0.4,
-                           color_discrete_sequence=['#4A90E2', '#00CC96', '#FFA15A'])
-        fig_pizza.update_traces(textposition='inside', textinfo='percent+label')
-        fig_pizza.update_layout(height=350, showlegend=False)
-        st.plotly_chart(fig_pizza, config={'responsive': True}, key="cmp_pizza", use_container_width=True)
-
-    with col_right:
-        st.subheader("Produção por Tipo")
-        fig_bar = px.bar(df_dist, x='Tipo', y='Quantidade', color='Tipo',
-                         color_discrete_sequence=['#4A90E2', '#00CC96', '#FFA15A'],
-                         text='Quantidade')
-        fig_bar.update_traces(texttemplate='%{text:,.0f}', textposition='outside')
-        fig_bar.update_layout(height=350, showlegend=False, xaxis_title="", yaxis_title="Quantidade")
-        st.plotly_chart(fig_bar, config={'responsive': True}, key="cmp_bar_geral", use_container_width=True)
+    st.caption("Os filtros globais da barra lateral são aplicados automaticamente em todos os gráficos.")
 
     st.markdown("---")
 

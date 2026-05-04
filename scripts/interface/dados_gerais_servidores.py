@@ -31,9 +31,7 @@ def exibir(df_tcc, df_art, df_proj):
     servidores_proj = set(df_proj_f['autores'].dropna().unique().tolist())
     todos_servidores = sorted(servidores_tcc | servidores_art | servidores_proj)
 
-    servidores_sel = st.multiselect(
-        "Selecione os servidores para comparar (2 ou mais)",
-        options=todos_servidores
+    servidores_sel = st.multiselect("Selecione os servidores para comparar (2 ou mais)", todos_servidores
     )
 
     if len(servidores_sel) < 2:

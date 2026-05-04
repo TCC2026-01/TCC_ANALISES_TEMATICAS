@@ -3,14 +3,13 @@
 Script ETL para Extrair, Transformar e Carregar dados para o Star Schema.
 
 Atualizações:
-- Mantém o processamento dimensional de TCCs
-- Preserva opcionalmente o campo 'resumo' de artigos, quando existir na tabela bruta
-- Continua carregando artigos e projetos como fatos auxiliares
+- mantém o processamento dimensional de TCCs
+- inclui `data_inicio` e `data_fim` em projetos
+- mantém artigos e projetos como fatos auxiliares
 """
 
 import sqlite3
 import pandas as pd
-import re
 import time
 from sqlalchemy import create_engine
 import unicodedata
@@ -25,6 +24,7 @@ LOG_REJEITADOS_FILE = "log_tccs_rejeitados.csv"
 print("Carregando dicionário de instituições...")
 INSTITUICOES = carregar_instituicoes()
 
+
 def normalize_string(text):
     if not isinstance(text, str):
         return ""
@@ -35,8 +35,10 @@ def normalize_string(text):
     text = text.replace("instituo", "instituto")
     return text
 
+
 def init_cap(series):
     return series.astype(str).str.title().str.strip()
+
 
 def extrair_autores_orientador(autores_str):
     if not isinstance(autores_str, str):
@@ -50,28 +52,38 @@ def extrair_autores_orientador(autores_str):
             alunos.append(parte)
     return alunos, orientador
 
+
 def validar_tcc_rede_federal(row):
     sigla_alvo = row["sigla_alvo_coleta"]
     nome_bruto_tcc = row["nome_tcc_bruto"]
+
     if pd.isna(sigla_alvo) or pd.isna(nome_bruto_tcc):
         return None
+
     norm_text = normalize_string(nome_bruto_tcc)
     norm_sigla = normalize_string(sigla_alvo)
+
     is_general_federal = "instituto federal" in norm_text
     is_specific_sigla = norm_sigla in norm_text
+
     if is_general_federal or is_specific_sigla:
         return sigla_alvo
     return None
 
+
 def logar_rejeitados(df_rejeitados, motivo_rejeicao, arquivo_log, modo="w"):
     if df_rejeitados.empty:
         return
+
     print(f"     - AVISO: {len(df_rejeitados)} registros serão descartados por '{motivo_rejeicao}'.")
     print(f"     - Logando rejeitados em '{arquivo_log}'...")
+
     df_log = df_rejeitados.copy()
     df_log["motivo_rejeicao"] = motivo_rejeicao
+
     escrever_cabecalho = (modo == "w") or (not os.path.exists(arquivo_log))
     df_log.to_csv(arquivo_log, mode=modo, index=False, header=escrever_cabecalho, encoding="utf-8-sig")
+
 
 def main():
     start_time = time.time()
@@ -87,10 +99,12 @@ def main():
         with sqlite3.connect(RAW_DB_NAME) as conn:
             query = "SELECT *, instituicao as nome_tcc_bruto, sigla as sigla_alvo_coleta FROM tccs"
             df_raw = pd.read_sql_query(query, conn)
+
             try:
                 df_artigos_raw = pd.read_sql_query("SELECT * FROM artigos", conn)
             except Exception:
                 df_artigos_raw = pd.DataFrame()
+
             try:
                 df_projetos_raw = pd.read_sql_query("SELECT * FROM projetos", conn)
             except Exception:
@@ -120,8 +134,15 @@ def main():
 
     print("   - Validando TCCs da Rede Federal...")
     df["sigla_mapeada"] = df.apply(validar_tcc_rede_federal, axis=1)
+
     df_rejeitados_inst = df[df["sigla_mapeada"].isna()]
-    logar_rejeitados(df_rejeitados_inst, "Instituição do TCC não parece ser da Rede Federal (ex: Universidade)", LOG_REJEITADOS_FILE, modo="w")
+    logar_rejeitados(
+        df_rejeitados_inst,
+        "Instituição do TCC não parece ser da Rede Federal (ex: Universidade)",
+        LOG_REJEITADOS_FILE,
+        modo="w"
+    )
+
     df.dropna(subset=["sigla_mapeada"], inplace=True)
     if len(df) == 0:
         print("   - Nenhum registro validado. Encerrando.")
@@ -162,11 +183,20 @@ def main():
 
     colunas_fk = ["instituicao_id", "campus_id", "curso_id"]
     df_rejeitados_fk = df[df[colunas_fk].isna().any(axis=1)]
-    logar_rejeitados(df_rejeitados_fk, "Falha ao mapear FK (Campus ou Curso nulo/inválido)", LOG_REJEITADOS_FILE, modo="a")
+    logar_rejeitados(
+        df_rejeitados_fk,
+        "Falha ao mapear FK (Campus ou Curso nulo/inválido)",
+        LOG_REJEITADOS_FILE,
+        modo="a"
+    )
+
     df.dropna(subset=colunas_fk, inplace=True)
     print(f"     - Registros restantes após garantir mapeamento FK: {len(df)}")
 
-    fato_tcc = df[["tcc_id", "titulo", "resumo", "palavras_chaves", "ano", "curso_id", "instituicao_id", "campus_id"]]
+    fato_tcc = df[[
+        "tcc_id", "titulo", "resumo", "palavras_chaves", "ano",
+        "curso_id", "instituicao_id", "campus_id"
+    ]]
 
     fato_artigo = None
     if not df_artigos_raw.empty:
@@ -179,7 +209,10 @@ def main():
         df_art["palavras_chaves"] = df_art.get("palavras_chaves", pd.Series([""] * len(df_art))).astype(str).str.strip()
         df_art["resumo"] = df_art.get("resumo", pd.Series([""] * len(df_art))).astype(str).str.strip()
         df_art["artigo_id"] = range(1, len(df_art) + 1)
-        fato_artigo = df_art[["artigo_id", "slug_professor", "nome_professor", "sigla", "ano", "titulo", "journal", "doi", "palavras_chaves", "resumo"]]
+        fato_artigo = df_art[[
+            "artigo_id", "slug_professor", "nome_professor", "sigla", "ano",
+            "titulo", "journal", "doi", "palavras_chaves", "resumo"
+        ]]
 
     fato_projeto = None
     if not df_projetos_raw.empty:
@@ -190,8 +223,14 @@ def main():
         df_proj["natureza"] = df_proj.get("natureza", pd.Series([""] * len(df_proj))).astype(str).str.strip()
         df_proj["equipe"] = df_proj.get("equipe", pd.Series([""] * len(df_proj))).astype(str).str.strip()
         df_proj["financiadores"] = df_proj.get("financiadores", pd.Series([""] * len(df_proj))).astype(str).str.strip()
+        df_proj["data_inicio"] = df_proj.get("data_inicio", pd.Series([""] * len(df_proj))).astype(str).str.strip()
+        df_proj["data_fim"] = df_proj.get("data_fim", pd.Series([""] * len(df_proj))).astype(str).str.strip()
         df_proj["projeto_id"] = range(1, len(df_proj) + 1)
-        fato_projeto = df_proj[["projeto_id", "slug_professor", "nome_professor", "sigla", "titulo", "descricao", "natureza", "equipe", "financiadores"]]
+        fato_projeto = df_proj[[
+            "projeto_id", "slug_professor", "nome_professor", "sigla",
+            "titulo", "descricao", "natureza", "equipe", "financiadores",
+            "data_inicio", "data_fim"
+        ]]
 
     ponte_tcc_aluno = df[["tcc_id", "lista_alunos"]].explode("lista_alunos").rename(columns={"lista_alunos": "nome_pessoa"})
     ponte_tcc_aluno["aluno_id"] = init_cap(ponte_tcc_aluno["nome_pessoa"]).map(map_pessoa)
@@ -230,6 +269,7 @@ def main():
 
     end_time = time.time()
     print(f"\n--- Processo ETL finalizado em {end_time - start_time:.2f} segundos. ---")
+
 
 if __name__ == "__main__":
     main()

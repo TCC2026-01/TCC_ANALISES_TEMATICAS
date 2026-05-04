@@ -86,7 +86,7 @@ def exibir(df):
             st.subheader("Previsão de Produção por Tema")
             top5 = df['nome_topico'].value_counts().head(5).index.tolist()
             if top5:
-                tema_viz = st.selectbox("Selecione um tema", options=top5, format_func=simplificar_topico)
+                tema_viz = st.selectbox("Selecione um tema", options=top5, format_func=simplificar_topico, key='artigos_tendencia_select')
                 if tema_viz:
                     df_hist = df[df['nome_topico'] == tema_viz].groupby('ano').size().reset_index(name='count')
                     if len(df_hist) >= 2:

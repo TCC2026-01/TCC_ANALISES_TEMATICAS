@@ -32,7 +32,7 @@ def exibir(df):
 
     st.markdown("---")
     st.subheader("Análise por Tema")
-    tema_sel = st.selectbox("Selecione um tema", options=df_temas['tema'].tolist(), format_func=simplificar_topico)
+    tema_sel = st.selectbox("Selecione um tema", options=df_temas['tema'].tolist(), format_func=simplificar_topico, key='tcc_tema_select')
     if tema_sel:
         df_tema_det = df[df['nome_topico'] == tema_sel]
         col_a, col_b, col_c = st.columns(3)

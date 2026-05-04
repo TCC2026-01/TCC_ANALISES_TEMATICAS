@@ -47,7 +47,7 @@ def metric_bold(label, value):
     </div>
     """, unsafe_allow_html=True)
 
-def filtrar_dados(df, instituicoes, anos, topicos, cursos, tipos=None):
+def filtrar_dados(df, instituicoes=None, anos=None, topicos=None, cursos=None, tipos=None):
     """
     Aplica os filtros selecionados no dataframe.
     O filtro de cursos agora funciona como uma busca textual (LIKE),
@@ -56,12 +56,17 @@ def filtrar_dados(df, instituicoes, anos, topicos, cursos, tipos=None):
     """
     df_f = df.copy()
 
+    instituicoes = instituicoes or []
+    topicos = topicos or []
+    cursos = cursos or []
+    tipos = tipos or []
+
     # 1. Filtro de Instituições
-    if instituicoes:
+    if instituicoes and 'instituicao' in df_f.columns:
         df_f = df_f[df_f['instituicao'].isin(instituicoes)]
 
     # opcional: filtro de tipo de registro
-    if tipos:
+    if tipos and 'tipo' in df_f.columns:
         df_f = df_f[df_f['tipo'].isin(tipos)]
 
 # 2. Filtro de Anos
@@ -69,11 +74,11 @@ def filtrar_dados(df, instituicoes, anos, topicos, cursos, tipos=None):
         df_f = df_f[df_f['ano'].between(anos[0], anos[1])]
 
     # 3. Filtro de Tópicos
-    if topicos:
+    if topicos and 'nome_topico' in df_f.columns:
         df_f = df_f[df_f['nome_topico'].isin(topicos)]
 
     # 4. Filtro de Cursos (Lógica LIKE + Sem Acento + Case Insensitive)
-    if cursos:
+    if cursos and 'curso_unificado' in df_f.columns:
         # Se 'cursos' for uma lista (ex: do multiselect), juntamos com '|' para criar um OR no regex
         # Se for apenas uma string (ex: campo de texto), usamos ela direto.
         if isinstance(cursos, list):
