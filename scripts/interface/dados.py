@@ -5,9 +5,9 @@ import os
 import gdown
 
 DRIVE_IDS = {
-    "artigos_dashboard.parquet":  "1PFgyctCUeMIeIaWQhk5VJa1_yVSnuC1z",
-    "projetos_dashboard.parquet": "1Inic8ZfwcOV5QE-DfwezmBp5lxgX1xao",
-    "tccs_dashboard.parquet":     "18esmAZm20GFo-PNLzXurUJ4ycwO4sGAE",
+    "tccs_dashboard.parquet":     "17VfHJdaBYLd1WHOWe9LuGhN19X-w6Bgb",
+    "projetos_dashboard.parquet": "1w3nSAvZhi7HpVquX1A4b2RwgHIBcON7v",
+    "artigos_dashboard.parquet":  "1X9GfMMfpugyYgwgck_VY9TPplHIPMViy",
 }
 
 # =========================
